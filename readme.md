@@ -142,11 +142,6 @@ The weighting ensures fairness takes precedence over topic matching.
 To support consistent bilateral discussions, each reviewer is restricted to pairing with **no more than two** distinct co-reviewers across all assigned papers.  
 This ensures the reviewer collaboration network remains manageable, forming simple paths or small cycles rather than large, complex graphs.
 
----
-
-## License
-
-Add your chosen license information here.
 
 ---
 
