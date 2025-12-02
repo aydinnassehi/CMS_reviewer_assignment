@@ -1,150 +1,130 @@
 # CMS Reviewer Assignment Optimiser  
-A fair, topic-aware reviewer assignment tool with co-reviewer limits.
+A fairness‑driven reviewer assignment tool with soft topic preferences and co‑reviewer limits.
 
-This repository contains a Python-based optimisation model for assigning two reviewers to each paper submitted to the CIRP-CMS conference (or any similar academic event). The model aims to balance reviewer workload, encourage topic alignment, and restrict the number of co-reviewer partnerships per reviewer to facilitate efficient bilateral discussions.
+This repository provides a Python‑based Mixed Integer Programming (MIP) model for assigning pairs of reviewers to conference papers. The model enforces balanced workloads, limits reviewer partnerships, and incorporates topic similarity as a *soft* objective without affecting feasibility.
 
-The core solver is implemented using Mixed Integer Linear Programming (MILP) via **pulp** and the CBC solver.
+The optimiser is built using **PuLP** with the CBC solver.
 
 ---
 
-## Overview
+## Features
 
-The script performs the following tasks:
+### ✔ Reviewer Assignment  
+Each paper receives **exactly one reviewer pair** (two reviewers).
 
-1. **Reads metadata** from two Excel files:
-   - `papers.xlsx`
-   - `reviewers.xlsx`
+### ✔ Fairness Constraints  
+Each reviewer is assigned between **6 and 9 papers**, based on known feasibility.
 
-2. **Parses topics** from authors and reviewers using a safe comma-and-space split  
-   (`", "`), ensuring compound topics such as  
-   *Industry 4.0, Industry 5.0 and beyond* remain a **single topic**.
+### ✔ Co‑Reviewer Limits  
+Each reviewer collaborates with **no more than 2 distinct co‑reviewers**.
 
-3. **Assigns exactly two reviewers per paper** by selecting reviewer pairs.
+### ✔ Soft Topic Matching  
+Topics **do not constrain** feasibility. Instead, they improve solution quality by giving a score bonus when paper–reviewer topics overlap.
 
-4. **Enforces constraints**:
-   - Each reviewer may review **at most 10 papers**.
-   - Each reviewer may collaborate with **no more than 2 distinct co-reviewers**.
-   - Topic matching is **desirable** (rewarded), but **not required**.
-   - **Fairness** is the primary objective: minimise the maximum workload (`L_max`).
-   - **Topic alignment** is a secondary objective.
-
-5. **Generates output files**:
-   - `assignment_output.xlsx` – final reviewer assignments  
-   - `reviewer_workloads.xlsx` – workload summary  
-   - `topic_reviewer_utilisation.xlsx` – topic utilisation across reviewers  
-   - `reviewer_workloads.png` – workload visualisation  
-   - `topic_coverage_heatmap.png` – topic heatmap  
-   - Plus co-reviewer summaries printed to console
+### ✔ Flexible Objective  
+The optimisation problem **maximises total topic matches** while respecting all fairness and structural constraints.
 
 ---
 
 ## Input File Format
 
-### `papers.xlsx`
+The tool expects two Excel files placed in the working directory:
 
-Must contain the following columns:
+### `papers.xlsx`  
+Required columns:
+| Column | Description |
+|--------|-------------|
+| **Paper Title** | Title of the manuscript |
+| **Name** | Author name |
+| **Choose topic(s) that best match the topics covered by your paper (choose up to 3 topics)** | Topics selected by the author, separated by comma and space |
 
-| Column Name | Description |
-|-------------|-------------|
-| **Paper Title** | Title of the submitted paper |
-| **Name** | Corresponding author |
-| **Choose topic(s) that best match the topics covered by your paper (choose up to 3 topics)** | Topics selected by the author |
+### `reviewers.xlsx`  
+Required columns:
+| Column | Description |
+|--------|-------------|
+| **Name** | Reviewer's name |
+| **Choose topic(s) that fits best to your research field** | List of reviewer topics, separated by comma and space |
 
-**Topic format:**  
-Topics must be separated only by **comma + space**, for example:
-
-```
-Digital Twin functionalities and strategies in manufacturing, Industry 4.0, Industry 5.0 and beyond
-```
-
-Notes:
-- The parser preserves compound topics containing internal commas.
-- Do **not** change separators to semicolons or other formats.
-
----
-
-### `reviewers.xlsx`
-
-Must contain the following columns:
-
-| Column Name | Description |
-|-------------|-------------|
-| **Name** | Reviewer’s full name |
-| **Choose topic(s) that fits best to your research field** | Reviewer-selected topics, in the same comma+space-separated format |
-
-**Example:**  
-```
-Artificial Intelligence (AI) and Machine Learning (ML), Digital Twin functionalities and strategies in manufacturing, Sustainable and circular manufacturing
-```
+### Notes on Topic Format  
+- Topics **must** be separated with **comma + space**, for example:  
+  ```
+  Digital Twin functionalities and strategies in manufacturing, Industry 4.0
+  ```
+- Compound topics containing internal commas are supported.
 
 ---
 
 ## How to Run
 
-### 1. Install dependencies
-
+### 1. Install Dependencies
 ```bash
-pip install pandas pulp matplotlib
+pip install pandas pulp
 ```
 
-CBC is bundled with `pulp` on many systems.  
-If not, see installation instructions here:  
+CBC is bundled with PuLP on many platforms.  
+If unavailable, install from:  
 https://coin-or.github.io/pulp/installation.html
 
-### 2. Place `papers.xlsx` and `reviewers.xlsx` in the same directory as the solver script.
-
-### 3. Run the optimiser
-
-```bash
-python assign_with_coreviewer_limits.py
+### 2. Place Required Files  
+Ensure the working directory contains:
+```
+papers.xlsx
+reviewers.xlsx
+Paper_Assign.py
 ```
 
-### 4. Outputs generated automatically
+### 3. Run the Optimiser
+```bash
+python Paper_Assign.py
+```
 
-- `assignment_output.xlsx`  
-- `reviewer_workloads.xlsx`  
-- `reviewer_workloads.png`  
-- `topic_reviewer_utilisation.xlsx`  
-- `topic_coverage_heatmap.png`
+### 4. Outputs Generated
 
-Console messages also report:
-- solver status  
-- reviewer workloads  
-- co-reviewer pairings  
+| Output File | Contents |
+|-------------|----------|
+| `assignment_output.xlsx` | Reviewer pair assigned to each paper, including topic match information |
+| `reviewer_workloads.xlsx` | Number of papers assigned to each reviewer |
+| Console output | Co‑reviewer partnership summary |
+
+The tool prints any warnings about unassigned papers or structural issues.
 
 ---
 
 ## Objective Structure
 
-The solver uses lexicographic optimisation:
-
-### **Primary objective:**  
-Minimise  
-L_max = max_r workload[r]
-
-to achieve reviewer fairness.
-
-### **Secondary objective:**  
-Maximise topic alignment across assignments.
-
-Implemented as:
+The optimisation maximises:
 
 ```
-minimise   10000 * L_max  -  topic_score
+total_topic_matches
 ```
 
-The weighting ensures fairness takes precedence over topic matching.
+subject to:
+
+- Reviewer workload: 6–9 papers  
+- Exactly one pair per paper  
+- Max 2 co‑reviewers per reviewer  
+- Integer feasibility for all assignment variables  
+
+Topics never reduce feasibility; they only guide pair selection when multiple feasible solutions exist.
 
 ---
 
-## Co-Reviewer Limit Rationale
+## Co‑Reviewer Limit Rationale
 
-To support consistent bilateral discussions, each reviewer is restricted to pairing with **no more than two** distinct co-reviewers across all assigned papers.  
-This ensures the reviewer collaboration network remains manageable, forming simple paths or small cycles rather than large, complex graphs.
+Limiting each reviewer to **no more than two** collaborators:
 
+- supports efficient bilateral discussions,  
+- prevents overloaded reviewer networks,  
+- ensures partner diversity without fragmentation.
+
+---
+
+## License
+
+MIT License (see LICENSE file).
 
 ---
 
 ## Contact
 
-For questions, comments, or improvements, please open an issue or pull request on GitHub.
+For questions, improvements, or feature requests, please open an issue or submit a pull request on GitHub.
