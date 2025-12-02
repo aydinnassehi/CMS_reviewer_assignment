@@ -122,13 +122,38 @@ for pair in reviewer_pairs:
     for i in paper_ids:
         prob += pair_used[pair] >= assign[i][pair]
 
-# Each reviewer has at most 2 distinct co-reviewers
+# Each reviewer has exactly 2 distinct co-reviewers
 for r in reviewer_ids:
     prob += pulp.lpSum(
         pair_used[pair]
         for pair in reviewer_pairs
         if r in pair
-    ) <= 2
+    ) == 2
+
+# ======================================================
+# 4b. Prevent authors from reviewing their own papers
+# ======================================================
+
+# Build a reverse lookup: reviewer name -> reviewer index
+reviewer_name_to_id = {
+    reviewers.loc[r, REVIEWER_NAME].strip(): r
+    for r in reviewer_ids
+}
+
+for p in paper_ids:
+    author_name = str(papers.loc[p, PAPER_AUTHOR]).strip()
+
+    # If author's name does not appear among reviewers, skip
+    if author_name not in reviewer_name_to_id:
+        continue
+
+    author_id = reviewer_name_to_id[author_name]
+
+    # Prohibit any pair containing the author
+    for pair in reviewer_pairs:
+        if author_id in pair:
+            prob += assign[p][pair] == 0
+
 
 
 # ======================================================
