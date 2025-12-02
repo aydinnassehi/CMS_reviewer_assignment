@@ -1,96 +1,108 @@
-"""
-Reviewer assignment with:
- - Exactly two reviewers per paper (via pairs)
- - Reviewer workload <= 10
- - Reviewer may have at most 2 co-reviewers overall
- - Soft topic matching (rewarded but not required)
- - Fairness first (minimise maximum workload)
- - Topic alignment second (maximise topic reward)
-"""
-
+import itertools
 import pandas as pd
-from itertools import combinations
-from collections import Counter, defaultdict
 import pulp
-import matplotlib.pyplot as plt
 
-
-# =========================================================
+# ======================================================
 # 1. Load data
-# =========================================================
-papers = pd.read_excel("papers.xlsx")
-reviewers = pd.read_excel("reviewers.xlsx")
+# ======================================================
 
-# Column names
-paper_title_col = "Paper Title"
-paper_author_col = "Name"
-paper_topic_col = "Choose topic(s) that best match the topics covered by your paper (choose up to 3 topics)"
+PAPERS_FILE = "papers.xlsx"
+REVIEWERS_FILE = "reviewers.xlsx"
 
-reviewer_name_col = "Name"
-reviewer_topic_col = "Choose topic(s) that fits best to your research field"
+papers = pd.read_excel(PAPERS_FILE)
+reviewers = pd.read_excel(REVIEWERS_FILE)
 
+# Required columns (matching your files)
+PAPER_TITLE = "Paper Title"
+PAPER_AUTHOR = "Name"
+PAPER_TOPICS_COL = "Choose topic(s) that best match the topics covered by your paper (choose up to 3 topics)"
+REVIEWER_NAME = "Name"
+REVIEWER_TOPICS_COL = "Choose topic(s) that fits best to your research field"
 
-# =========================================================
-# 2. Parse topics correctly
-# =========================================================
-def extract_topics(x):
-    if pd.isna(x):
-        return []
-    return [t.strip() for t in str(x).split(", ") if t.strip()]
+papers = papers.reset_index(drop=True)
+reviewers = reviewers.reset_index(drop=True)
 
 paper_ids = list(papers.index)
 reviewer_ids = list(reviewers.index)
 
-paper_topics = {i: extract_topics(papers.loc[i, paper_topic_col]) for i in paper_ids}
-reviewer_topics = {j: extract_topics(reviewers.loc[j, reviewer_topic_col]) for j in reviewer_ids}
+# All reviewer pairs
+reviewer_pairs = [(r1, r2) for r1, r2 in itertools.combinations(reviewer_ids, 2)]
 
-topic_match = {
-    (i, j): len(set(paper_topics[i]) & set(reviewer_topics[j])) > 0
-    for i in paper_ids for j in reviewer_ids
+print(f"Loaded {len(paper_ids)} papers and {len(reviewer_ids)} reviewers.")
+print(f"Total reviewer pairs: {len(reviewer_pairs)}")
+
+
+# ======================================================
+# 2. Topic parsing (SOFT preference only)
+# ======================================================
+
+def split_topics(text):
+    if pd.isna(text):
+        return []
+    return [t.strip() for t in str(text).split(",")]
+
+paper_topics = {
+    i: set(split_topics(papers.loc[i, PAPER_TOPICS_COL]))
+    for i in paper_ids
 }
 
-reviewer_pairs = list(combinations(reviewer_ids, 2))
+reviewer_topics = {
+    r: set(split_topics(reviewers.loc[r, REVIEWER_TOPICS_COL]))
+    for r in reviewer_ids
+}
+
+# Topic overlap score for each paper × pair
+topic_score = {}
+for i in paper_ids:
+    pt = paper_topics[i]
+    for pair in reviewer_pairs:
+        r1, r2 = pair
+        R = reviewer_topics[r1] | reviewer_topics[r2]
+        score = len(pt.intersection(R))
+        topic_score[(i, pair)] = score
 
 
-# =========================================================
-# 3. Model
-# =========================================================
-prob = pulp.LpProblem("ReviewerAssignment_SoftTopics", pulp.LpMinimize)
+# ======================================================
+# 3. Model definition
+#    - FAIRNESS AS HARD CONSTRAINTS
+#    - MAXIMISE TOPIC ALIGNMENT
+# ======================================================
 
-# assign[i][pair] = 1 if paper i is reviewed by the pair (r1,r2)
-assign = pulp.LpVariable.dicts(
-    "assign", (paper_ids, reviewer_pairs), 0, 1, cat="Binary"
-)
+prob = pulp.LpProblem("Reviewer_Assignment", pulp.LpMaximize)
 
-# pair_used[pair] = 1 if that pair is used for at least one paper
-pair_used = pulp.LpVariable.dicts(
-    "pair_used", reviewer_pairs, 0, 1, cat="Binary"
-)
+# Binary assignment: assign[i][(r1,r2)] = 1
+assign = {
+    i: {
+        pair: pulp.LpVariable(f"assign_{i}_{pair[0]}_{pair[1]}",
+                              lowBound=0, upBound=1, cat="Binary")
+        for pair in reviewer_pairs
+    }
+    for i in paper_ids
+}
 
-# workload[r] = number of papers reviewer r is assigned
+# Whether a pair is used at least once
+pair_used = {
+    pair: pulp.LpVariable(f"pair_used_{pair[0]}_{pair[1]}",
+                          lowBound=0, upBound=1, cat="Binary")
+    for pair in reviewer_pairs
+}
+
+# Workload per reviewer
 workload = {
     r: pulp.LpVariable(f"load_{r}", lowBound=0, cat="Integer")
     for r in reviewer_ids
 }
 
-# max workload (fairness)
-L_max = pulp.LpVariable("L_max", lowBound=0, cat="Integer")
 
-
-# =========================================================
+# ======================================================
 # 4. Constraints
-# =========================================================
+# ======================================================
 
-# 4.1 Assign => pair_used
-for pair in reviewer_pairs:
-    for i in paper_ids:
-        prob += assign[i][pair] <= pair_used[pair]
-
-# 4.2 Each paper gets exactly one pair
+# Each paper gets exactly one pair
 for i in paper_ids:
     prob += pulp.lpSum(assign[i][pair] for pair in reviewer_pairs) == 1
 
-# 4.3 Workload definition
+# Workload definition: count how many papers each reviewer sees
 for r in reviewer_ids:
     prob += workload[r] == pulp.lpSum(
         assign[i][pair]
@@ -99,30 +111,29 @@ for r in reviewer_ids:
         if r in pair
     )
 
-# 4.4 Workload upper bound
+# Hard load constraints: fairness band
+# (we know from previous run that a solution with max load 9 exists)
 for r in reviewer_ids:
-    prob += workload[r] <= 10
+    prob += workload[r] >= 6
+    prob += workload[r] <= 9  # tighten upper bound to the known feasible L_max
 
-# 4.5 Fairness: link all workloads to L_max
-for r in reviewer_ids:
-    prob += workload[r] <= L_max
+# Bind assign -> pair_used
+for pair in reviewer_pairs:
+    for i in paper_ids:
+        prob += pair_used[pair] >= assign[i][pair]
 
-# 4.6 Co-reviewer limit: each reviewer may collaborate with <= 2 other reviewers
+# Each reviewer has at most 2 distinct co-reviewers
 for r in reviewer_ids:
     prob += pulp.lpSum(
-        pair_used[pair] for pair in reviewer_pairs if r in pair
+        pair_used[pair]
+        for pair in reviewer_pairs
+        if r in pair
     ) <= 2
 
 
-# =========================================================
-# 5. Soft topic reward
-# =========================================================
-topic_score = {}
-for i in paper_ids:
-    for (r1, r2) in reviewer_pairs:
-        topic_score[(i, (r1, r2))] = (
-            int(topic_match[(i, r1)]) + int(topic_match[(i, r2)])
-        )
+# ======================================================
+# 5. Objective: maximise topic alignment (SOFT)
+# ======================================================
 
 topic_term = pulp.lpSum(
     assign[i][pair] * topic_score[(i, pair)]
@@ -130,87 +141,96 @@ topic_term = pulp.lpSum(
     for pair in reviewer_pairs
 )
 
-# Lexicographic objective:
-#   Minimise L_max * BIG - topic_term
-BIG = 10000
-
-prob += L_max * BIG - topic_term
+prob += topic_term   # maximise total topic overlap
 
 
-# =========================================================
-# 6. Solve
-# =========================================================
-solver = pulp.PULP_CBC_CMD(msg=1)
+# ======================================================
+# 6. Solve with an optional 180-second limit
+# ======================================================
+
+solver = pulp.PULP_CBC_CMD(
+    msg=1,
+#    options=["sec=180"]  # hard time cap
+)
+
 prob.solve(solver)
 
-print("\nSolver status:", pulp.LpStatus[prob.status], "\n")
+print("\nSolver status:", pulp.LpStatus[prob.status])
+
+# If no integer solution found, say so explicitly and stop cleanly
+if pulp.LpStatus[prob.status] not in ("Optimal", "Integer Feasible"):
+    print("No integer-feasible solution found within the time limit.")
+else:
+    print("Objective (total topic matches):", pulp.value(topic_term))
 
 
-# =========================================================
-# 7. Extract assignment
-# =========================================================
-assigned_pair_for_paper = {}
-rows = []
+# ======================================================
+# 7. Extract assignments (only if feasible)
+# ======================================================
+
+assignments = []
 
 for i in paper_ids:
-    chosen = [pair for pair in reviewer_pairs if pulp.value(assign[i][pair]) == 1]
-    if len(chosen) != 1:
-        print(f"WARNING: Paper {i} has {len(chosen)} chosen pairs (expected 1)")
+    chosen = None
+    for pair in reviewer_pairs:
+        val = pulp.value(assign[i][pair])
+        if val is not None and abs(val - 1) < 1e-5:
+            chosen = pair
+            break
+
+    if chosen is None:
+        print(f"WARNING: paper {i} has no chosen pair.")
         continue
-    pair = chosen[0]
-    r1, r2 = pair
-    assigned_pair_for_paper[i] = pair
 
-    shared = set(paper_topics[i]) & set(reviewer_topics[r1]) & set(reviewer_topics[r2])
+    r1, r2 = chosen
 
-    rows.append({
-        "Paper Title": papers.loc[i, paper_title_col],
-        "Author": papers.loc[i, paper_author_col],
-        "Reviewer 1": reviewers.loc[r1, reviewer_name_col],
-        "Reviewer 2": reviewers.loc[r2, reviewer_name_col],
-        "Shared Topics (if any)": ", ".join(sorted(shared)),
+    # topic reporting for this assignment
+    pt = paper_topics[i]
+    rt = reviewer_topics[r1] | reviewer_topics[r2]
+    shared = pt.intersection(rt)
+    shared_topics = ", ".join(sorted(shared)) if shared else ""
+
+    assignments.append({
+        "Paper ID": i,
+        "Paper Title": papers.loc[i, PAPER_TITLE],
+        "Author": papers.loc[i, PAPER_AUTHOR],
+        "Reviewer 1": reviewers.loc[r1, REVIEWER_NAME],
+        "Reviewer 2": reviewers.loc[r2, REVIEWER_NAME],
+        "Topic matches (count)": len(shared),
+        "Shared Topics": shared_topics
     })
 
-assignment_df = pd.DataFrame(rows)
-assignment_df.to_excel("assignment_output.xlsx", index=False)
+df_assign = pd.DataFrame(assignments)
+df_assign.to_excel("assignment_output.xlsx", index=False)
 print("Saved assignment_output.xlsx")
 
 
-# =========================================================
+# ======================================================
 # 8. Workload summary
-# =========================================================
-computed_workload = Counter()
-for i,pair in assigned_pair_for_paper.items():
-    (r1,r2)=pair
-    computed_workload[r1]+=1
-    computed_workload[r2]+=1
+# ======================================================
 
-workload_df = pd.DataFrame([
+df_load = pd.DataFrame([
     {
-        "Reviewer": reviewers.loc[r, reviewer_name_col],
-        "Papers": computed_workload[r]
+        "Reviewer ID": r,
+        "Reviewer Name": reviewers.loc[r, REVIEWER_NAME],
+        "Workload": float(pulp.value(workload[r])) if pulp.value(workload[r]) is not None else None
     }
     for r in reviewer_ids
 ])
 
-workload_df.to_excel("reviewer_workloads.xlsx", index=False)
+df_load.to_excel("reviewer_workloads.xlsx", index=False)
 print("Saved reviewer_workloads.xlsx")
 
 
-# =========================================================
-# 9. Co-reviewer sets
-# =========================================================
-co_reviewers = defaultdict(set)
-for pair in reviewer_pairs:
-    if pulp.value(pair_used[pair]) >= 0.5:
-        r1, r2 = pair
-        co_reviewers[r1].add(r2)
-        co_reviewers[r2].add(r1)
+# ======================================================
+# 9. Co-reviewer relationships
+# ======================================================
 
 print("\nCo-reviewer relationships:")
 for r in reviewer_ids:
-    print(
-        reviewers.loc[r, reviewer_name_col],
-        "->",
-        [reviewers.loc[x, reviewer_name_col] for x in co_reviewers[r]]
-    )
+    partners = []
+    for pair in reviewer_pairs:
+        if pulp.value(pair_used[pair]) is not None and abs(pulp.value(pair_used[pair]) - 1) < 1e-5 and r in pair:
+            partners.append(pair[0] if pair[1] == r else pair[1])
+    names = [reviewers.loc[x, REVIEWER_NAME] for x in partners]
+    print(f"{reviewers.loc[r, REVIEWER_NAME]} -> {names}")
