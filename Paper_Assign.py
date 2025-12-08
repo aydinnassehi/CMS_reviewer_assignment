@@ -234,7 +234,7 @@ for i in paper_ids:
     shared = pt.intersection(rt)
     shared_topics = ", ".join(sorted(shared)) if shared else ""
 
-assignments.append({
+    assignments.append({
     "Paper ID": i,
     "Paper Title": papers.loc[i, PAPER_TITLE],
     "Author": papers.loc[i, PAPER_AUTHOR],
@@ -248,7 +248,7 @@ assignments.append({
 
     "Topic matches (count)": len(shared),
     "Shared Topics": shared_topics
-})
+    })
 
 df_assign = pd.DataFrame(assignments)
 df_assign.to_excel("assignment_output.xlsx", index=False)
