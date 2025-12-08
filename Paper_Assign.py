@@ -234,15 +234,21 @@ for i in paper_ids:
     shared = pt.intersection(rt)
     shared_topics = ", ".join(sorted(shared)) if shared else ""
 
-    assignments.append({
-        "Paper ID": i,
-        "Paper Title": papers.loc[i, PAPER_TITLE],
-        "Author": papers.loc[i, PAPER_AUTHOR],
-        "Reviewer 1": reviewers.loc[r1, REVIEWER_NAME],
-        "Reviewer 2": reviewers.loc[r2, REVIEWER_NAME],
-        "Topic matches (count)": len(shared),
-        "Shared Topics": shared_topics
-    })
+assignments.append({
+    "Paper ID": i,
+    "Paper Title": papers.loc[i, PAPER_TITLE],
+    "Author": papers.loc[i, PAPER_AUTHOR],
+    "Author Institution": papers.loc[i, "Institution"],
+
+    "Reviewer 1": reviewers.loc[r1, REVIEWER_NAME],
+    "Reviewer 1 Institution": reviewers.loc[r1, "Institution"],
+
+    "Reviewer 2": reviewers.loc[r2, REVIEWER_NAME],
+    "Reviewer 2 Institution": reviewers.loc[r2, "Institution"],
+
+    "Topic matches (count)": len(shared),
+    "Shared Topics": shared_topics
+})
 
 df_assign = pd.DataFrame(assignments)
 df_assign.to_excel("assignment_output.xlsx", index=False)
