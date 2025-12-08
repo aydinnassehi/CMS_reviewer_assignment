@@ -112,10 +112,10 @@ for r in reviewer_ids:
     )
 
 # Hard load constraints: fairness band
-# (we know from previous run that a solution with max load 9 exists)
+
 for r in reviewer_ids:
-    prob += workload[r] >= 6
-    prob += workload[r] <= 9  # tighten upper bound to the known feasible L_max
+    prob += workload[r] >= 11
+    prob += workload[r] <= 12  # tighten upper bound to the known feasible L_max
 
 # Bind assign -> pair_used
 for pair in reviewer_pairs:
@@ -155,6 +155,7 @@ for p in paper_ids:
             prob += assign[p][pair] == 0
 
 
+    prob += workload[r] <= 12  # tighten upper bound to the known feasible L_max
 
 # ======================================================
 # 5. Objective: maximise topic alignment (SOFT)
@@ -175,7 +176,7 @@ prob += topic_term   # maximise total topic overlap
 
 solver = pulp.PULP_CBC_CMD(
     msg=1,
-#    options=["sec=180"]  # hard time cap
+    options=["sec=180"]  # hard time cap
 )
 
 prob.solve(solver)
