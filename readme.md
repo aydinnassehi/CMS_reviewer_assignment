@@ -1,7 +1,7 @@
 # CMS Reviewer Assignment Optimiser  
-A fairness‑driven reviewer assignment tool with soft topic preferences and co‑reviewer limits.
+A fairness-driven reviewer assignment tool with institution-conflict handling, automatic workload balancing, soft topic preferences, and co-reviewer limits.
 
-This repository provides a Python‑based Mixed Integer Programming (MIP) model for assigning pairs of reviewers to conference papers. The model enforces balanced workloads, limits reviewer partnerships, and incorporates topic similarity as a *soft* objective without affecting feasibility.
+This repository provides a Python-based Mixed Integer Programming (MIP) model for assigning pairs of reviewers to conference papers. The model enforces balanced workloads based on the number of papers and reviewers, prevents institutional conflicts, limits reviewer partnerships, and incorporates topic similarity as a soft objective without affecting feasibility.
 
 The optimiser is built using **PuLP** with the CBC solver.
 
@@ -12,14 +12,29 @@ The optimiser is built using **PuLP** with the CBC solver.
 ### ✔ Reviewer Assignment  
 Each paper receives **exactly one reviewer pair** (two reviewers).
 
-### ✔ Fairness Constraints  
-Each reviewer is assigned between **6 and 9 papers**, based on known feasibility.
+### ✔ Automatic Fairness Constraints  
+Reviewer workload bounds are calculated automatically from:
+- number of papers  
+- number of reviewers  
+- requirement that each paper needs two reviewers  
 
-### ✔ Co‑Reviewer Limits  
-Each reviewer collaborates with **no more than 2 distinct co‑reviewers**.
+The optimiser computes:
+```
+L_min = floor( 2 × num_papers / num_reviewers )
+L_max = ceil( 2 × num_papers / num_reviewers )
+```
+These values ensure that fairness constraints are **always feasible**.
+
+### ✔ Institution Conflict Constraint  
+No reviewer may be assigned to a paper authored by someone from the **same institution**.  
+Pairs including such reviewers are forbidden for that paper.
+
+### ✔ Co-Reviewer Limits  
+Each reviewer collaborates with **exactly two distinct co-reviewers**, unless modified.
 
 ### ✔ Soft Topic Matching  
-Topics **do not constrain** feasibility. Instead, they improve solution quality by giving a score bonus when paper–reviewer topics overlap.
+Topics do not constrain feasibility.  
+They contribute to the objective by rewarding reviewer pairs that share topics with the paper.
 
 ### ✔ Flexible Objective  
 The optimisation problem **maximises total topic matches** while respecting all fairness and structural constraints.
@@ -36,17 +51,19 @@ Required columns:
 |--------|-------------|
 | **Paper Title** | Title of the manuscript |
 | **Name** | Author name |
+| **Institution** | Author’s institution |
 | **Choose topic(s) that best match the topics covered by your paper (choose up to 3 topics)** | Topics selected by the author, separated by comma and space |
 
 ### `reviewers.xlsx`  
 Required columns:
 | Column | Description |
 |--------|-------------|
-| **Name** | Reviewer's name |
+| **Name** | Reviewer’s name |
+| **Institution** | Reviewer’s institution |
 | **Choose topic(s) that fits best to your research field** | List of reviewer topics, separated by comma and space |
 
 ### Notes on Topic Format  
-- Topics **must** be separated with **comma + space**, for example:  
+- Topics must be separated with **comma + space**, for example:  
   ```
   Digital Twin functionalities and strategies in manufacturing, Industry 4.0
   ```
@@ -84,9 +101,7 @@ python Paper_Assign.py
 |-------------|----------|
 | `assignment_output.xlsx` | Reviewer pair assigned to each paper, including topic match information |
 | `reviewer_workloads.xlsx` | Number of papers assigned to each reviewer |
-| Console output | Co‑reviewer partnership summary |
-
-The tool prints any warnings about unassigned papers or structural issues.
+| Console output | Co-reviewer partnership summary |
 
 ---
 
@@ -100,22 +115,22 @@ total_topic_matches
 
 subject to:
 
-- Reviewer workload: 6–9 papers  
+- Automatically determined reviewer workload bounds  
 - Exactly one pair per paper  
-- Max 2 co‑reviewers per reviewer  
+- No reviewer may review a paper from their own institution  
+- Exactly two co-reviewers per reviewer  
 - Integer feasibility for all assignment variables  
 
 Topics never reduce feasibility; they only guide pair selection when multiple feasible solutions exist.
 
 ---
 
-## Co‑Reviewer Limit Rationale
+## Co-Reviewer Limit Rationale
 
-Limiting each reviewer to **no more than two** collaborators:
-
-- supports efficient bilateral discussions,  
-- prevents overloaded reviewer networks,  
-- ensures partner diversity without fragmentation.
+Limiting each reviewer to **two collaborators**:
+- supports efficient bilateral discussions  
+- prevents overloaded reviewer networks  
+- maintains balanced reviewer relationships  
 
 ---
 
