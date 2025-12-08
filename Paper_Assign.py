@@ -113,9 +113,27 @@ for r in reviewer_ids:
 
 # Hard load constraints: fairness band
 
+# ======================================================
+# Automatic workload fairness based on paper count
+# ======================================================
+
+num_papers = len(paper_ids)
+num_reviewers = len(reviewer_ids)
+
+# Total reviewer-load required = 2 per paper
+total_load = 2 * num_papers
+average_load = total_load / num_reviewers
+
+import math
+L_min = math.floor(average_load)
+L_max = math.ceil(average_load)
+
+print(f"Automatic workload bounds: {L_min} to {L_max} per reviewer")
+
 for r in reviewer_ids:
-    prob += workload[r] >= 11
-    prob += workload[r] <= 12  # tighten upper bound to the known feasible L_max
+    prob += workload[r] >= L_min
+    prob += workload[r] <= L_max
+
 
 # Bind assign -> pair_used
 for pair in reviewer_pairs:
@@ -155,7 +173,7 @@ for p in paper_ids:
             prob += assign[p][pair] == 0
 
 
-    prob += workload[r] <= 12  # tighten upper bound to the known feasible L_max
+    prob += workload[r] <= L_max  # tighten upper bound to the known feasible L_max
 
 # ======================================================
 # 5. Objective: maximise topic alignment (SOFT)
